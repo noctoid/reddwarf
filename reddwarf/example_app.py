@@ -1,11 +1,19 @@
+import json
+from typing import Any
 from datetime import datetime
 from asyncio import sleep
 from pydantic import BaseModel, ValidationError, validator
-from starlette.websockets import WebSocket
-from server import WebSocketEndpoint, get_app
+from starlette.websockets import WebSocket, WebSocketState
+from server import WebSocketEndpoint, get_app, BaseWebsocketHandler
+
+from starlette.exceptions import WebSocketException
+
+from utils.context import get_current_user
+
 
 async def foobar():
     return {"an api endpoint with no parameter"}
+
 
 class Foobar2Param(BaseModel):
     trading_day: str
@@ -25,61 +33,30 @@ class Foobar2Param(BaseModel):
         return v
 
 
-
 async def foobar2(foobar2param: Foobar2Param):
+    print(get_current_user())
     print(type(foobar2param))
     print(type(foobar2param.trading_day), foobar2param.trading_day)
     for i in foobar2param.account_id:
         print(type(i), i)
     return {
         'message': f"requesting data of {foobar2param.trading_day}"
-                   f"and {foobar2param.account_id}"
+                   f"and {foobar2param.account_id}",
+        "user": get_current_user(),
     }
 
-class asyncrange:
 
-    class __asyncrange:
-        def __init__(self, *args):
-            self.__iter_range = iter(range(*args))
+class FoobarStream(BaseWebsocketHandler):
+    @staticmethod
+    def get_endpoint():
+        return 'foobar_stream'
 
-        async def __anext__(self):
-            try:
-                return next(self.__iter_range)           
-            except StopIteration as e:
-                raise StopAsyncIteration(str(e))
+    async def handle_received_message(self, data: Any):
+        return {'echo': data.strip(), 'user': self.user['username']}
 
-    def __init__(self, *args):
-        self.__args = args
-
-    def __aiter__(self):
-        return self.__asyncrange(*self.__args)
-
-class FoobarStream(WebSocketEndpoint):
-    encoding: 'bytes'
-    endpoint = 'foobar_stream'
-
-    async def on_connect(self, ws):
-        await ws.accept()
-        print("new client connected")
-
-    async def on_receive(self, ws: WebSocket, data):
-        if data.strip() in ('START', 'ACK'):
-            await sleep(3)    
-            print(f'sending segment piece')
-            await ws.send_json({"segment": 'segment piece'})
-        elif data.strip() in ('EXIT'):
-            ws.close(code=0, reason=None)
-                
-        print(f"received: {data}")
-        await ws.send_json({"echo": data})
-
-    async def on_disconnect(self, websocket: WebSocket, close_code: int) -> None:
-        print("client disconnected")
-        await websocket.close(code=0, reason=None)
 
 app = get_app(
     config=None,
     routes=[(foobar, None), (foobar2, Foobar2Param)],
     ws_routes=[FoobarStream]
 )
-    
